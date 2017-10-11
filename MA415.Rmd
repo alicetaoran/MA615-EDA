@@ -10,9 +10,9 @@ output: pdf_document
 ```{r Script Overview, include = FALSE, eval = FALSE}
 # The script is broken down into several sections:
 #    a) set up global variables and prepare packages
-#    b) download and import data files
-#    c) normalize data, store final tables
-#    d) visualize data, store final graphs
+#    b) download and import data files    # OK no download anymore.
+#    c) normalize data, store final tables, clean up
+#    d) visualize data, store final graphs, clean up
 #    e) assemble final output into a pdf file
 ```
 
@@ -37,20 +37,25 @@ pacman::p_load("dplyr", "ggplot2", "kableExtra", "knitr", "pander",
 
 ```{r Import Data, include = FALSE}
 
-# DOWNLOAD HOUSING UNIT TYPE DATA
+# 
+# This part seems unstable as it works on some people's computers, 
+# but not on others'. I managed to have users download data files instead
+# of having R do it.
+#
+# Download housing unit type data
 # download.file(
-#  "https://www.eia.gov/consumption/residential/data/2015/hc/hc3.1.xlsx",
-#  "UNIT.xlsx", quiet = TRUE, mode = "wb")
-
-# DOWNLOAD HOUSEHOLD INCOME DATA
+#   "https://www.eia.gov/consumption/residential/data/2015/hc/hc3.1.xlsx",
+#   "unit.xlsx", quiet = TRUE, mode = "wb")
+# 
+# # Download household income data
 # download.file(
-#  "https://www.eia.gov/consumption/residential/data/2015/hc/hc3.5.xlsx",
-# "INCOME.xlsx", quiet = TRUE, mode = "wb")
-
-# DOWNLOAD CLIMATE REGION DATA
+#   "https://www.eia.gov/consumption/residential/data/2015/hc/hc3.5.xlsx",
+#   "income.xlsx", quiet = TRUE, mode = "wb")
+# 
+# # Download climate region data
 # download.file(
-#  "https://www.eia.gov/consumption/residential/data/2015/hc/hc3.6.xlsx",
-#  "CLIMATE.xlsx", quiet = TRUE, mode = "wb")
+#   "https://www.eia.gov/consumption/residential/data/2015/hc/hc3.6.xlsx",
+#   "climate.xlsx", quiet = TRUE, mode = "wb")
 
 # Import and store data
 t_unit_0    <- read_excel("unit.xlsx", sheet = "data",
@@ -68,14 +73,14 @@ t_climate_0 <- read_excel("climate.xlsx", sheet = "data",
 
 
 
-```{r Normalize Part I, include = FALSE}
+```{r Normalize Data Part I, include = FALSE}
 
 # Copy data for future manipulation
 t_unit_1    <- t_unit_0
 t_income_1  <- t_income_0
 t_climate_1 <- t_climate_0
 
-# Rename columns using convention
+# Rename columns using convention to be used in later manipulation
 colnames(t_unit_1)    <- c("f_type", "ttl_cnt", "sgl_de",
                            "sgl_at", "apt_2_4", "apt_5", "mob")
 
@@ -154,23 +159,30 @@ p_unit    <- t_unit_6
 p_income  <- t_income_6
 p_climate <- t_climate_6
 
+# Some additional manipulation to the climate data
 # Calculate percentage by climate region
-t_climate_sum <- aggregate(p_climate$`Frequency (million)`, 
+t_climate_pct <- aggregate(p_climate$`Frequency (million)`, 
                            by = list(category = p_climate$`Climate Region`),
-                           FUN=sum, na.rm = TRUE)
+                           FUN = sum, na.rm = TRUE)
 
 # Update column names
-names(t_climate_sum)[1] <- "Climate Region"
-names(t_climate_sum)[2] <- "Frequency (million)"
+names(t_climate_pct)[1] <- "Climate Region"
+names(t_climate_pct)[2] <- "Frequency (million)"
 
 # Merge tables
-t_climate_pct <- merge(x = p_climate, y = t_climate_sum, by = "Climate Region", all = TRUE)
-names(t_climate_pct)[3] <- "Frequency (million)"
-names(t_climate_pct)[4] <- "Frequency in Region (million)"
-t_climate_pct$Percentage <- 100*(t_climate_pct$`Frequency (million)` /t_climate_pct$`Frequency in Region (million)`)
+t_climate_pct_2 <- merge(x = p_climate, y = t_climate_pct,
+                       by = "Climate Region", all = TRUE)
+
+# Update column names
+names(t_climate_pct_2)[3] <- "Frequency (million)"
+names(t_climate_pct_2)[4] <- "Frequency in Region (million)"
+
+# Calculate percentage
+t_climate_pct_2$Percentage <- 100*(t_climate_pct_2$`Frequency (million)`
+                                 /t_climate_pct_2$`Frequency in Region (million)`)
 
 # Store results
-p_climate <- t_climate_pct
+p_climate_pct <- t_climate_pct_2
 
 # Remove temporary variables
 rm(list = ls(pattern = "^t_"))
@@ -179,29 +191,31 @@ rm(list = ls(pattern = "^t_"))
 
 
 ```{r Visualize Data}
-knitr::opts_chunk$set(fig.width=5.5, fig.height=3.5,cex.lab=0.5, cex.axis=0.5, cex.main=0.5, cex.sub=0.5)
+knitr::opts_chunk$set(fig.width = 5.5, fig.height = 3.5, cex.lab = 0.5,
+                      cex.axis = 0.5, cex.main = 0.5, cex.sub=0.5)
+
 # Total frequency of fridges by unit types
-g_unit <-  ggplot(data = p_unit, aes(x = `Unit Type`, y =`Frequency (million)`)) +
-                geom_col(aes(fill = `Fridge Type`)) +
-                theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
-                labs(title = "Use of Refrigerators by Unit Types")
+g_unit <-  ggplot(p_unit, aes(x = `Unit Type`, y =`Frequency (million)`)) +
+           geom_col(aes(fill = `Fridge Type`)) +
+           theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+           labs(title = "Use of Refrigerators by Unit Types")
 
 # Total frequency of fridges by climate regions
-g_climate <- ggplot(data = p_climate, aes(x = `Climate Region`, 
-                                          y = `Frequency (million)`, 
-                                          group = `Fridge Type`)) +
+g_climate <- ggplot(p_climate, aes(x = `Climate Region`, 
+                                   y = `Frequency (million)`,
+                                   group = `Fridge Type`)) +
              geom_col(aes(fill = `Fridge Type`)) +
-             theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+             theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
              labs(title = "Use of Refrigerators by Climate Regions")
 
 # Percentage of fridges by climate regions
-g_climate_pct <- ggplot(data = p_climate, aes(x = `Climate Region`, y = Percentage)) +
+g_climate_pct <- ggplot(p_climate_pct, aes(x = `Climate Region`, y = Percentage)) +
                  geom_col(aes(fill = `Fridge Type`)) +
                  labs(title = "Percentage Use Climate Regions", y = "Percentage") +
                  coord_flip()
 
 # Total frequency of fridges by income levels
-g_income  <- ggplot(data = p_income, aes(x = Income, y = `Frequency (million)`)) +
+g_income  <- ggplot(p_income, aes(x = Income, y = `Frequency (million)`)) +
              geom_col(aes(fill =`Fridge Type`)) + 
              theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
              labs(title = "Use of Refrigerators by Income Levels")
@@ -224,7 +238,8 @@ t_fgrth_0   <- read.csv("fgrowth.csv", header = TRUE, check.names = FALSE)
 t_fgrth_1   <- t_fgrth_0
 
 # Rename columns using convention
-colnames(t_fgrth_1)   <- c("f_num", "2015", "2009", "2005", "2001", "1997", "1993")
+colnames(t_fgrth_1)   <- c("f_num", "2015", "2009", "2005",
+                           "2001", "1997", "1993")
 
 # Copy data for future manipulation
 t_fgrth_2   <- t_fgrth_1
@@ -239,21 +254,20 @@ t_fgrth_2[, 2:7]   <- sapply(t_fgrth_2[, 2:7], as.numeric)
 t_fgrth_3   <- t_fgrth_2
 
 # Update column names before melt
-colnames(t_fgrth_3)   <- c("Number of Refrigerators", "2015", "2009", "2005",
-                           "2001", "1997", "1993")
+colnames(t_fgrth_3)   <- c("Number of Refrigerators", "2015", "2009",
+                           "2005", "2001", "1997", "1993")
 
 # Melt data to standardized format
 t_fgrth_4  <- as_tibble(melt(t_fgrth_3, id = 1))
 
 # Update column names
 names(t_fgrth_4)[2]   <- "Year"
-
-# Update column names
 names(t_fgrth_4)[3]   <- "Frequency (million)"
 
 # Copy data for future manipulation
 p_fgrth <- t_fgrth_4
 
+# Some additional manipulation
 # Copy data for future manipulation
 t_fgrth_5 <- p_fgrth 
 
@@ -269,24 +283,36 @@ names(t_fgrth_one)[2]  <- "End Year"
 names(t_fgrth_more)[2] <- "End Year"
 
 # Add a start year column
-t_fgrth_all  <- mutate(t_fgrth_all,  `Start Year` = c(`End Year`[-1] + 1, NA))
-t_fgrth_one  <- mutate(t_fgrth_one,  `Start Year` = c(`End Year`[-1] + 1, NA))
-t_fgrth_more <- mutate(t_fgrth_more, `Start Year` = c(`End Year`[-1] + 1, NA))
+t_fgrth_all  <- mutate(t_fgrth_all,
+                       `Start Year` = c(`End Year`[-1] + 1, NA))
+
+t_fgrth_one  <- mutate(t_fgrth_one,
+                       `Start Year` = c(`End Year`[-1] + 1, NA))
+
+t_fgrth_more <- mutate(t_fgrth_more,
+                       `Start Year` = c(`End Year`[-1] + 1, NA))
 
 # Add a years in period column
-t_fgrth_all  <- mutate(t_fgrth_all,  `Years in Period` = `End Year` - `Start Year` + 1)
-t_fgrth_one  <- mutate(t_fgrth_one,  `Years in Period` = `End Year` - `Start Year` + 1)
-t_fgrth_more <- mutate(t_fgrth_more, `Years in Period` = `End Year` - `Start Year` + 1)
+t_fgrth_all  <- mutate(t_fgrth_all,
+                       `Years in Period` = `End Year` - `Start Year` + 1)
+
+t_fgrth_one  <- mutate(t_fgrth_one,
+                       `Years in Period` = `End Year` - `Start Year` + 1)
+
+t_fgrth_more <- mutate(t_fgrth_more,
+                       `Years in Period` = `End Year` - `Start Year` + 1)
 
 # Add a time period column
 t_fgrth_all  <- mutate(t_fgrth_all,
                       `Year Period` = paste(as.character(`Start Year`),
                                             "-",
                                             as.character(`End Year`)))
+
 t_fgrth_one  <- mutate(t_fgrth_one,
                       `Year Period` = paste(as.character(`Start Year`),
                                             "-",
                                             as.character(`End Year`)))
+
 t_fgrth_more <- mutate(t_fgrth_more,
                        `Year Period` = paste(as.character(`Start Year`),
                                              "-",
@@ -294,43 +320,57 @@ t_fgrth_more <- mutate(t_fgrth_more,
 
 # Add a frequency change column
 t_fgrth_all  <- mutate(t_fgrth_all,
-                       `Frequency Change` =  `Frequency (million)` - c(`Frequency (million)`[-1], NA))
+                       `Frequency Change` =
+                         `Frequency (million)` -c(`Frequency (million)`[-1], NA))
 
 t_fgrth_one  <- mutate(t_fgrth_one,
-                       `Frequency Change` =  `Frequency (million)` - c(`Frequency (million)`[-1], NA))
+                       `Frequency Change` =
+                         `Frequency (million)` - c(`Frequency (million)`[-1], NA))
 
 t_fgrth_more <- mutate(t_fgrth_more,
-                       `Frequency Change` =  `Frequency (million)` - c(`Frequency (million)`[-1], NA))
+                       `Frequency Change` =
+                         `Frequency (million)` - c(`Frequency (million)`[-1], NA))
 
 # Add a percentage chagne column
 t_fgrth_all <- mutate(t_fgrth_all,
-                      `Percentage Change` = 100 * (`Frequency Change`/`Frequency (million)`[-1]))
+                      `Percentage Change` =
+                        100 * (`Frequency Change`/`Frequency (million)`[-1]))
 
 t_fgrth_one <- mutate(t_fgrth_one,
-                      `Percentage Change` = 100 * (`Frequency Change`/`Frequency (million)`[-1]))
+                      `Percentage Change` =
+                        100 * (`Frequency Change`/`Frequency (million)`[-1]))
 
 t_fgrth_more <- mutate(t_fgrth_more,
-                      `Percentage Change` = 100 * (`Frequency Change`/`Frequency (million)`[-1]))
+                      `Percentage Change` =
+                        100 * (`Frequency Change`/`Frequency (million)`[-1]))
 
 # Add a yearly percentage change column
 t_fgrth_all <- mutate(t_fgrth_all,
-                      `Yearly Percentage Change` = `Percentage Change` / `Years in Period`)
+                      `Yearly Percentage Change` =
+                        `Percentage Change` / `Years in Period`)
 
 t_fgrth_one <- mutate(t_fgrth_one,
-                      `Yearly Percentage Change` = `Percentage Change` / `Years in Period`)
+                      `Yearly Percentage Change` =
+                        `Percentage Change` / `Years in Period`)
 
 t_fgrth_more <- mutate(t_fgrth_more,
-                      `Yearly Percentage Change` = `Percentage Change` / `Years in Period`)
+                      `Yearly Percentage Change` =
+                        `Percentage Change` / `Years in Period`)
 
 # Select needed columns
-t_fgrth_all_1  <- select(t_fgrth_all,  `Year Period`, `Frequency (million)`,
-                         `Frequency Change`, `Percentage Change`, `Yearly Percentage Change`)
-t_fgrth_one_1  <- select(t_fgrth_one,  `Year Period`, `Frequency (million)`,
-                         `Frequency Change`, `Percentage Change`, `Yearly Percentage Change`)
-t_fgrth_more_1 <- select(t_fgrth_more,  `Year Period`, `Frequency (million)`,
-                         `Frequency Change`, `Percentage Change`, `Yearly Percentage Change`)
+t_fgrth_all_1  <- select(t_fgrth_all,  `Year Period`,
+                         `Frequency (million)`, `Frequency Change`,
+                         `Percentage Change`, `Yearly Percentage Change`)
 
-# Store results
+t_fgrth_one_1  <- select(t_fgrth_one,  `Year Period`,
+                         `Frequency (million)`, `Frequency Change`,
+                         `Percentage Change`,`Yearly Percentage Change`)
+
+t_fgrth_more_1 <- select(t_fgrth_more,  `Year Period`,
+                         `Frequency (million)`, `Frequency Change`,
+                         `Percentage Change`, `Yearly Percentage Change`)
+
+# Store results, columns with NA are removed
 p_fgrth_all  <- t_fgrth_all_1[complete.cases(t_fgrth_all_1), ]
 p_fgrth_one  <- t_fgrth_one_1[complete.cases(t_fgrth_one_1), ]
 p_fgrth_more <- t_fgrth_more_1[complete.cases(t_fgrth_more_1), ]
@@ -352,34 +392,31 @@ rm(list = ls(pattern = "^t_"))
 \section*{Growth of the Refrigerator Market}
 
 **1. Overall Growth of the Market** 
-
 ```{r Overall Growth Table}
-kable(p_fgrth_all, caption = 'U.S. Families with Refrigerators 1994-2015 (millions)',
+kable(p_fgrth_all,
+      caption = 'U.S. Families with Refrigerators 1994-2015 (millions)',
       format = "latex", booktabs = T) %>%
   kable_styling(font_size = 7, latex_options = c("striped", "hold_position"))
 ```
-
   In this section, we will look at the growth of the refrigerator market from 1994 to 2015. Looking at the table that was derived from the data, we can observe that the overall growth of the market has been relatively slow but steady over the past 20 years. The annual growth rate of US families with refrigerators ranges between 0.5 - 1.8%. For any new investor to the refrigerator market, it is important to understand growth in sales can be achieved by growth in the market share, not by the growth of the refrigerator market itself. This is mostly because refrigerators tend to have long lifetime, and consumers do not purchase a new refrigerator very often. 
 
 **2. U.S. Families with one Refrigerator** 
-
 ```{r Single Fridge Table}
-kable(p_fgrth_one, caption = 'U.S. Families with one Refrigerator 1994-2015 (millions)',
+kable(p_fgrth_one,
+      caption = 'U.S. Families with one Refrigerator 1994-2015 (millions)',
       format = "latex", booktabs = T) %>%
   kable_styling(font_size = 7, latex_options = c("striped", "hold_position"))
 
 ```
-
   In the data compiled for the purchase of one fridge, we can see that the volatility of the market has been higher over the years than that of the overall market. This should not be very concerning as we can see that the range is between -1% and 1.2% and numbers are not very extreme.
 
 **3. U.S. Families with two or more Refrigerators** 
-
 ```{r Two or More Fridges Table}
-kable(p_fgrth_more, caption = 'U.S. Families with two or more Refrigerator 1994-2015 (millions)',
+kable(p_fgrth_more,
+      caption = 'U.S. Families with two or more Refrigerator 1994-2015 (millions)',
       format = "latex", booktabs = T) %>%
   kable_styling(font_size = 7, latex_options = c("striped", "hold_position"))
 ```
-
   If our investor is interested in a faster-growing market, probably market for the second or more fridges is a hot market to enter. Over the past 20 years, the number of people who own two or more fridges has been constantly growing. Indeed its growth has been higher than that of both overall, and single-use fridge market between 1-8% per year.
 
 \section*{Income Level Anlaysis}
